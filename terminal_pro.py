@@ -979,6 +979,38 @@ if ticker_final:
         # TAB 1: GRÁFICO
         # ────────────────────────────────────────────────────
         with tab1:
+
+            # ── Controles de rango ───────────────────────────
+            rc1, rc2, rc3 = st.columns([2, 3, 1])
+            with rc1:
+                rango_botones = st.radio(
+                    "Rango rápido",
+                    ["1S", "1M", "3M", "6M", "1A", "2A", "TODO"],
+                    index=4,
+                    horizontal=True,
+                    label_visibility="collapsed"
+                )
+            with rc3:
+                altura_grafico = st.select_slider(
+                    "Alto",
+                    options=[600, 700, 800, 900, 1000, 1100, 1200],
+                    value=950,
+                    label_visibility="collapsed"
+                )
+
+            # Calcular fechas según rango seleccionado
+            fecha_fin = df.index[-1]
+            rangos = {
+                "1S": fecha_fin - pd.Timedelta(weeks=1),
+                "1M": fecha_fin - pd.Timedelta(days=30),
+                "3M": fecha_fin - pd.Timedelta(days=90),
+                "6M": fecha_fin - pd.Timedelta(days=180),
+                "1A": fecha_fin - pd.Timedelta(days=365),
+                "2A": fecha_fin - pd.Timedelta(days=730),
+                "TODO": df.index[0],
+            }
+            fecha_inicio_zoom = rangos[rango_botones]
+
             bb_upper = get_col(df, ["BBU_20"])
             bb_middle = get_col(df, ["BBM_20"])
             bb_lower = get_col(df, ["BBL_20"])
@@ -1115,7 +1147,7 @@ if ticker_final:
                         line=dict(color='#00D4FF', width=1.5)), row=curr_row, col=1)
 
             fig.update_layout(
-                height=950,
+                height=altura_grafico,
                 template="plotly_dark",
                 paper_bgcolor='#060A0F',
                 plot_bgcolor='#0D1520',
@@ -1129,18 +1161,40 @@ if ticker_final:
                 ),
                 font=dict(family='JetBrains Mono', color='#7A8BA0'),
                 margin=dict(l=60, r=60, t=30, b=30),
+                xaxis=dict(range=[fecha_inicio_zoom, fecha_fin]),
             )
 
             for i in range(1, total_rows + 1):
                 fig.update_xaxes(
                     gridcolor='#1E2D3D', showgrid=True,
-                    zeroline=False, row=i, col=1
+                    zeroline=False, row=i, col=1,
+                    range=[fecha_inicio_zoom, fecha_fin] if i == 1 else None
                 )
                 fig.update_yaxes(
                     gridcolor='#1E2D3D', showgrid=True,
                     zeroline=False, row=i, col=1,
                     side='right'
                 )
+
+            # Barra deslizante de navegación temporal
+            st.markdown("<div style='margin-top:-10px;'></div>", unsafe_allow_html=True)
+            fechas_disponibles = df.index.tolist()
+            if len(fechas_disponibles) > 10:
+                idx_min = 0
+                idx_max = len(fechas_disponibles) - 1
+                idx_inicio_default = max(0, fechas_disponibles.index(
+                    min(fechas_disponibles, key=lambda x: abs((x.tz_localize(None) if x.tzinfo else x) - (fecha_inicio_zoom.tz_localize(None) if hasattr(fecha_inicio_zoom, 'tzinfo') and fecha_inicio_zoom.tzinfo else fecha_inicio_zoom)))
+                ))
+                rango_idx = st.slider(
+                    "📅 Navegar en el tiempo",
+                    min_value=0,
+                    max_value=idx_max,
+                    value=(idx_inicio_default, idx_max),
+                    label_visibility="visible"
+                )
+                fecha_slider_ini = fechas_disponibles[rango_idx[0]]
+                fecha_slider_fin = fechas_disponibles[rango_idx[1]]
+                fig.update_xaxes(range=[fecha_slider_ini, fecha_slider_fin], row=1, col=1)
 
             st.plotly_chart(fig, use_container_width=True)
 
