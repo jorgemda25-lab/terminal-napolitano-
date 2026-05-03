@@ -971,8 +971,8 @@ if ticker_final:
         # ══════════════════════════════════════════════════════
         # TABS PRINCIPALES
         # ══════════════════════════════════════════════════════
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
-            "📈  GRÁFICO", "🔔  SEÑALES & ANÁLISIS", "📰  NOTICIAS", "📊  FUNDAMENTALES", "⚙️  ALERTAS"
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+            "📈  GRÁFICO", "🔔  SEÑALES & ANÁLISIS", "📰  NOTICIAS", "📊  FUNDAMENTALES", "⚙️  ALERTAS", "📐  MARKOWITZ"
         ])
 
         # ────────────────────────────────────────────────────
@@ -1561,6 +1561,221 @@ FIBONACCI:
             )
         with exp_col3:
             st.markdown(f'<div style="text-align:center;font-size:10px;color:#7A8BA0;padding:8px;">Auto-refresh en 45s<br><span class="live-dot"></span>DATOS EN VIVO</div>', unsafe_allow_html=True)
+
+        # ────────────────────────────────────────────────────
+        # TAB 6: MARKOWITZ
+        # ────────────────────────────────────────────────────
+        with tab6:
+            st.markdown('<p class="section-hdr">📐 PORTAFOLIO ÓPTIMO DE MARKOWITZ</p>', unsafe_allow_html=True)
+            st.markdown('<p style="color:#7A8BA0;font-size:12px;">Ingresá los tickers y la inversión total. La app descarga precios reales, calcula rendimiento esperado, riesgo y la frontera eficiente.</p>', unsafe_allow_html=True)
+
+            mk1, mk2 = st.columns([2, 1])
+
+            with mk2:
+                st.markdown('<p class="section-hdr">CONFIGURACIÓN</p>', unsafe_allow_html=True)
+                inversion_total = st.number_input("💰 Inversión total (USD)", min_value=100.0, value=10000.0, step=100.0)
+                mk_period = st.selectbox("📅 Período histórico", ["1y", "2y", "3y", "5y"], index=1)
+                n_simulaciones = st.select_slider("🎲 Simulaciones Monte Carlo", options=[1000, 2000, 5000, 10000], value=5000)
+                tasa_libre_riesgo = st.number_input("📊 Tasa libre de riesgo (%)", min_value=0.0, max_value=20.0, value=4.5, step=0.1) / 100
+
+            with mk1:
+                st.markdown('<p class="section-hdr">ACTIVOS DEL PORTAFOLIO</p>', unsafe_allow_html=True)
+                st.markdown("<p style='color:#7A8BA0;font-size:11px;'>Ingresá hasta 10 tickers separados por coma. Ejemplos: AAPL, MSFT, GGAL.BA, BTC-USD, GC=F</p>", unsafe_allow_html=True)
+                tickers_input = st.text_input("tickers_mk", value="GGAL.BA, YPFD.BA, MELI, VIST, BTC-USD", label_visibility="collapsed")
+                calcular = st.button("🚀 CALCULAR PORTAFOLIO ÓPTIMO", use_container_width=True)
+
+            if calcular:
+                tickers_mk = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
+
+                if len(tickers_mk) < 2:
+                    st.error("Necesitás al menos 2 activos para calcular el portafolio.")
+                else:
+                    with st.spinner("📡 Descargando precios y calculando portafolio óptimo..."):
+                        try:
+                            precios_dict = {}
+                            errores_mk = []
+                            for t in tickers_mk:
+                                try:
+                                    datos = yf.Ticker(t).history(period=mk_period)["Close"]
+                                    if len(datos) > 30:
+                                        precios_dict[t] = datos
+                                    else:
+                                        errores_mk.append(t)
+                                except:
+                                    errores_mk.append(t)
+
+                            if errores_mk:
+                                st.warning(f"No se pudieron cargar: {', '.join(errores_mk)}")
+
+                            if len(precios_dict) < 2:
+                                st.error("No hay suficientes activos válidos.")
+                            else:
+                                precios_df_mk = pd.DataFrame(precios_dict).dropna()
+                                rendimientos_mk = precios_df_mk.pct_change().dropna()
+                                n_activos = len(precios_dict)
+                                nombres_mk = list(precios_dict.keys())
+                                rend_anual = rendimientos_mk.mean() * 252
+                                cov_anual = rendimientos_mk.cov() * 252
+
+                                # Monte Carlo
+                                np.random.seed(42)
+                                resultados_mc = np.zeros((3, n_simulaciones))
+                                pesos_simulados = np.zeros((n_simulaciones, n_activos))
+
+                                for i in range(n_simulaciones):
+                                    pesos = np.random.random(n_activos)
+                                    pesos /= pesos.sum()
+                                    pesos_simulados[i] = pesos
+                                    rend_p = np.dot(pesos, rend_anual)
+                                    var_p = np.dot(pesos.T, np.dot(cov_anual, pesos))
+                                    riesgo_p = np.sqrt(var_p)
+                                    resultados_mc[0, i] = rend_p
+                                    resultados_mc[1, i] = riesgo_p
+                                    resultados_mc[2, i] = (rend_p - tasa_libre_riesgo) / riesgo_p
+
+                                idx_max_sharpe = np.argmax(resultados_mc[2])
+                                pesos_optimos = pesos_simulados[idx_max_sharpe]
+                                rend_optimo = resultados_mc[0, idx_max_sharpe]
+                                riesgo_optimo = resultados_mc[1, idx_max_sharpe]
+                                sharpe_optimo = resultados_mc[2, idx_max_sharpe]
+
+                                idx_min_riesgo = np.argmin(resultados_mc[1])
+                                pesos_min_riesgo = pesos_simulados[idx_min_riesgo]
+                                rend_min_riesgo = resultados_mc[0, idx_min_riesgo]
+                                riesgo_min_riesgo = resultados_mc[1, idx_min_riesgo]
+
+                                # Métricas
+                                st.divider()
+                                r1, r2, r3, r4 = st.columns(4)
+                                r1.markdown(f'<div class="metric-card"><div class="metric-label">RENDIMIENTO ESPERADO</div><div class="metric-value" style="color:#00FF88;">{rend_optimo*100:.2f}%</div><div style="font-size:10px;color:#7A8BA0;">anual</div></div>', unsafe_allow_html=True)
+                                r2.markdown(f'<div class="metric-card"><div class="metric-label">RIESGO ESPERADO</div><div class="metric-value" style="color:#FF6B1A;">{riesgo_optimo*100:.2f}%</div><div style="font-size:10px;color:#7A8BA0;">volatilidad anual</div></div>', unsafe_allow_html=True)
+                                r3.markdown(f'<div class="metric-card"><div class="metric-label">RATIO SHARPE</div><div class="metric-value" style="color:#00D4FF;">{sharpe_optimo:.3f}</div><div style="font-size:10px;color:#7A8BA0;">rendimiento/riesgo</div></div>', unsafe_allow_html=True)
+                                r4.markdown(f'<div class="metric-card"><div class="metric-label">INVERSIÓN TOTAL</div><div class="metric-value" style="color:#FFD700;">USD {inversion_total:,.0f}</div><div style="font-size:10px;color:#7A8BA0;">a distribuir</div></div>', unsafe_allow_html=True)
+
+                                # Frontera eficiente
+                                fig_mk = go.Figure()
+                                fig_mk.add_trace(go.Scatter(
+                                    x=resultados_mc[1]*100, y=resultados_mc[0]*100,
+                                    mode="markers",
+                                    marker=dict(color=resultados_mc[2], colorscale="RdYlGn", size=3, opacity=0.6,
+                                        colorbar=dict(title="Sharpe", titlefont=dict(color="#7A8BA0"), tickfont=dict(color="#7A8BA0"))),
+                                    name="Portafolios simulados",
+                                    hovertemplate="Riesgo: %{x:.2f}%<br>Rendimiento: %{y:.2f}%<extra></extra>"
+                                ))
+                                fig_mk.add_trace(go.Scatter(
+                                    x=[riesgo_optimo*100], y=[rend_optimo*100],
+                                    mode="markers+text",
+                                    marker=dict(color="#00FF88", size=16, symbol="star"),
+                                    text=["⭐ MAX SHARPE"], textposition="top center",
+                                    textfont=dict(color="#00FF88", size=11), name="Portafolio óptimo"
+                                ))
+                                fig_mk.add_trace(go.Scatter(
+                                    x=[riesgo_min_riesgo*100], y=[rend_min_riesgo*100],
+                                    mode="markers+text",
+                                    marker=dict(color="#00D4FF", size=14, symbol="diamond"),
+                                    text=["💎 MÍN RIESGO"], textposition="top center",
+                                    textfont=dict(color="#00D4FF", size=11), name="Mínimo riesgo"
+                                ))
+                                fig_mk.update_layout(
+                                    title=dict(text="FRONTERA EFICIENTE DE MARKOWITZ", font=dict(color="#FF6B1A", size=16, family="JetBrains Mono")),
+                                    xaxis=dict(title="Riesgo (Volatilidad %)", gridcolor="#1E2D3D", color="#7A8BA0"),
+                                    yaxis=dict(title="Rendimiento Esperado (%)", gridcolor="#1E2D3D", color="#7A8BA0"),
+                                    template="plotly_dark", paper_bgcolor="#060A0F", plot_bgcolor="#0D1520",
+                                    height=500, font=dict(family="JetBrains Mono", color="#7A8BA0"),
+                                    legend=dict(bgcolor="#0D1520", bordercolor="#1E2D3D", borderwidth=1)
+                                )
+                                st.plotly_chart(fig_mk, use_container_width=True)
+
+                                # Tablas de pesos
+                                st.markdown('<p class="section-hdr">DISTRIBUCIÓN ÓPTIMA DEL PORTAFOLIO</p>', unsafe_allow_html=True)
+                                mk_col1, mk_col2 = st.columns(2)
+                                with mk_col1:
+                                    st.markdown("**⭐ Portafolio Máximo Sharpe**")
+                                    df_pesos = pd.DataFrame({
+                                        "Activo": nombres_mk,
+                                        "Peso %": [f"{p*100:.2f}%" for p in pesos_optimos],
+                                        "USD a invertir": [f"USD {p*inversion_total:,.2f}" for p in pesos_optimos],
+                                        "Rend. anual": [f"{rend_anual[n]*100:.2f}%" for n in nombres_mk],
+                                    })
+                                    st.dataframe(df_pesos, use_container_width=True, hide_index=True)
+                                with mk_col2:
+                                    st.markdown("**💎 Portafolio Mínimo Riesgo**")
+                                    df_pesos_mr = pd.DataFrame({
+                                        "Activo": nombres_mk,
+                                        "Peso %": [f"{p*100:.2f}%" for p in pesos_min_riesgo],
+                                        "USD a invertir": [f"USD {p*inversion_total:,.2f}" for p in pesos_min_riesgo],
+                                        "Rend. anual": [f"{rend_anual[n]*100:.2f}%" for n in nombres_mk],
+                                    })
+                                    st.dataframe(df_pesos_mr, use_container_width=True, hide_index=True)
+
+                                # Pie chart
+                                fig_pie = go.Figure(data=[go.Pie(
+                                    labels=nombres_mk, values=pesos_optimos*100, hole=0.4,
+                                    marker=dict(colors=["#00FF88","#00D4FF","#FF6B1A","#FFD700","#FF3366","#9B59B6","#1ABC9C","#E74C3C","#3498DB","#F39C12"]),
+                                    textfont=dict(color="white", size=12)
+                                )])
+                                fig_pie.update_layout(
+                                    title=dict(text="DISTRIBUCIÓN % — PORTAFOLIO ÓPTIMO", font=dict(color="#FF6B1A", size=14, family="JetBrains Mono")),
+                                    template="plotly_dark", paper_bgcolor="#060A0F", height=400,
+                                    font=dict(family="JetBrains Mono", color="#7A8BA0"),
+                                    legend=dict(bgcolor="#0D1520", bordercolor="#1E2D3D")
+                                )
+                                st.plotly_chart(fig_pie, use_container_width=True)
+
+                                # Correlación
+                                st.markdown('<p class="section-hdr">MATRIZ DE CORRELACIÓN</p>', unsafe_allow_html=True)
+                                corr_matrix = rendimientos_mk.corr()
+                                fig_corr = go.Figure(data=go.Heatmap(
+                                    z=corr_matrix.values, x=nombres_mk, y=nombres_mk,
+                                    colorscale="RdYlGn", zmid=0,
+                                    text=np.round(corr_matrix.values, 2), texttemplate="%{text}",
+                                    textfont=dict(size=12, color="white"),
+                                    colorbar=dict(tickfont=dict(color="#7A8BA0"))
+                                ))
+                                fig_corr.update_layout(
+                                    title=dict(text="CORRELACIÓN ENTRE ACTIVOS", font=dict(color="#FF6B1A", size=14, family="JetBrains Mono")),
+                                    template="plotly_dark", paper_bgcolor="#060A0F", plot_bgcolor="#0D1520",
+                                    height=400, font=dict(family="JetBrains Mono", color="#7A8BA0")
+                                )
+                                st.plotly_chart(fig_corr, use_container_width=True)
+
+                                # Export Excel
+                                st.markdown('<p class="section-hdr">EXPORTAR RESULTADOS</p>', unsafe_allow_html=True)
+                                import io
+                                output_excel = io.BytesIO()
+                                with pd.ExcelWriter(output_excel, engine="openpyxl") as writer:
+                                    pd.DataFrame({
+                                        "Métrica": ["Rendimiento esperado anual","Riesgo anual","Ratio Sharpe","Tasa libre riesgo","Inversión total USD","Período","Simulaciones"],
+                                        "Valor": [f"{rend_optimo*100:.2f}%", f"{riesgo_optimo*100:.2f}%", f"{sharpe_optimo:.4f}", f"{tasa_libre_riesgo*100:.2f}%", f"USD {inversion_total:,.2f}", mk_period, n_simulaciones]
+                                    }).to_excel(writer, sheet_name="Resumen", index=False)
+
+                                    pd.DataFrame({
+                                        "Activo": nombres_mk,
+                                        "Peso Óptimo %": [round(p*100,2) for p in pesos_optimos],
+                                        "USD Max Sharpe": [round(p*inversion_total,2) for p in pesos_optimos],
+                                        "Peso Mín Riesgo %": [round(p*100,2) for p in pesos_min_riesgo],
+                                        "USD Mín Riesgo": [round(p*inversion_total,2) for p in pesos_min_riesgo],
+                                        "Rend. Individual %": [round(rend_anual[n]*100,2) for n in nombres_mk],
+                                    }).to_excel(writer, sheet_name="Distribución", index=False)
+
+                                    precios_df_mk.to_excel(writer, sheet_name="Precios Históricos")
+                                    rendimientos_mk.to_excel(writer, sheet_name="Rendimientos Diarios")
+                                    cov_anual.to_excel(writer, sheet_name="Covarianza Anual")
+                                    corr_matrix.to_excel(writer, sheet_name="Correlación")
+
+                                output_excel.seek(0)
+                                fecha_hoy = datetime.now().strftime("%Y%m%d_%H%M")
+                                st.download_button(
+                                    label="📥 DESCARGAR EXCEL COMPLETO",
+                                    data=output_excel,
+                                    file_name=f"Markowitz_{fecha_hoy}.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    use_container_width=True
+                                )
+                                st.success("✅ Excel listo con 6 hojas: Resumen · Distribución · Precios · Rendimientos · Covarianza · Correlación")
+
+                        except Exception as e:
+                            st.error(f"Error calculando portafolio: {e}")
 
     else:
         st.markdown(
