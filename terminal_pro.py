@@ -1658,7 +1658,7 @@ FIBONACCI:
                                     x=resultados_mc[1]*100, y=resultados_mc[0]*100,
                                     mode="markers",
                                     marker=dict(color=resultados_mc[2], colorscale="RdYlGn", size=3, opacity=0.6,
-                                        colorbar=dict(title="Sharpe", titlefont=dict(color="#7A8BA0"), tickfont=dict(color="#7A8BA0"))),
+                                        colorbar=dict(title=dict(text="Sharpe", font=dict(color="#7A8BA0")), tickfont=dict(color="#7A8BA0"))),
                                     name="Portafolios simulados",
                                     hovertemplate="Riesgo: %{x:.2f}%<br>Rendimiento: %{y:.2f}%<extra></extra>"
                                 ))
